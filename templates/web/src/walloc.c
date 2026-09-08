@@ -21,12 +21,13 @@
 #include "walloc.h"
 
 #include <stdint.h>
+#include <stdalign.h>
 #include "string.h"
 
 extern unsigned char __heap_base;
 
 typedef struct _header {
-	struct _header *next;
+	alignas(max_align_t) struct _header *next;
 	struct _header *prev;
 	char free;
 } header;
@@ -39,7 +40,7 @@ static size_t get_size(header *h) {
 }
 
 static void split_if_possible(header *h, size_t s, size_t size) {
-	if (s <= size + sizeof(header) + sizeof(header))
+	if (s - size <= sizeof(header) + sizeof(header))
 		return;
 
 	header *hn = (header *)((char *)h + sizeof(header) + size);
@@ -52,10 +53,12 @@ static void split_if_possible(header *h, size_t s, size_t size) {
 }
 
 void *malloc(size_t size) {
-	if (size == 0)
+	const size_t alignment = alignof(max_align_t);
+	if (size == 0 || size > SIZE_MAX - sizeof(header) - (alignment - 1))
 		return NULL;
+	size = (size + alignment - 1) & ~(alignment - 1);
 
-	header *h = (header *)&__heap_base;
+	header *h = (header *)(((uintptr_t)&__heap_base + alignment - 1) & ~(uintptr_t)(alignment - 1));
 
 	if (!inited) {
 		h->next = NULL;

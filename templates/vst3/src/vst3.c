@@ -1021,6 +1021,8 @@ static void processParams(pluginInstance *p, struct Steinberg_Vst_ProcessData *d
 			continue;
 		Steinberg_Vst_ParamID id = q->lpVtbl->getParameterId(q);
 		int pi = parameterGetIndexById(id);
+		if (pi < 0)
+			continue;
 # if DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 		if (pi >= DATA_PRODUCT_PARAMETERS_N) {
 			size_t j = pi - DATA_PRODUCT_PARAMETERS_N;

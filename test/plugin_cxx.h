@@ -250,6 +250,9 @@ static void plugin_set_parameter(plugin *instance, size_t index, float value) {
 	case plugin_parameter_cutoff:
 		instance->p.setCutoff(value);
 		break;
+	case plugin_parameter_tremolo:
+		instance->p.setTremolo(value);
+		break;
 	case plugin_parameter_bypass:
 		instance->p.setBypass(value >= 0.5f);
 		break;

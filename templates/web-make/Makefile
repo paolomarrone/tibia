@@ -83,10 +83,13 @@ LDFLAGS_ALL := \
 	-Wl,--export=processor_get_out_params \
 	-Wl,--export=processor_process \
 	-Wl,--export=processor_set_parameter \
-	$(if $filter(yes,$(HAS_MIDI_IN)),-Wl,--export=processor_midi_msg_in) \
 	-Wl,-z,stack-size=$$((8*1024*1024)) \
 	-nostdlib \
 	$(LDFLAGS_EXTRA) $(LDFLAGS) $(LDFLAGS_POST)
+
+ifeq ($(HAS_MIDI_IN), yes)
+	LDFLAGS_ALL := $(LDFLAGS_ALL) -Wl,--export=processor_midi_msg_in
+endif
 
 LDLIBS :=
 LDLIBS_ALL := $(LDLIBS_EXTRA) $(LDLIBS) $(LDLIBS_POST)
@@ -109,6 +112,9 @@ all: $(ALL)
 
 build/src/processor.cpp: $(COMMON_DIR)/src/processor.c | build/src
 	cp $^ $@
+
+# C++ header: disable implicit rules
+$(COMMON_DIR)/src/new: ;
 
 ifeq ($(CXX_OBJS),)
 build/web/$(BUNDLE_NAME)/module.wasm: $(C_OBJS) $(LIBS) | build/web/$(BUNDLE_NAME)
@@ -145,11 +151,15 @@ strip: $(STRIP_PREREQS)
 PERCENT := %
 
 $(C_OBJS): build/obj/%.o: $$(filter $$(PERCENT)/$$(basename $$(notdir $$@)).c,$$(C_SRCS)) | build/obj
-	$(CC) $^ -o $@ -c $(CFLAGS_ALL)
+	$(CC) $< -o $@ -c $(CFLAGS_ALL) -MMD -MP
 
 $(CXX_OBJS): build/obj/%.o: $$(filter $$(PERCENT)/$$(basename $$(notdir $$@)).cpp,$$(CXX_SRCS)) | build/obj
-	$(CXX) $^ -o $@ -c $(CXXFLAGS_ALL)
+	$(CXX) $< -o $@ -c $(CXXFLAGS_ALL) -MMD -MP
 
 -include $(MKINC_DIR)/rules-secondexp-extra.mk
+
+$(C_OBJS) $(CXX_OBJS): $(MAKEFILE_LIST)
+
+-include $(C_OBJS:.o=.d) $(CXX_OBJS:.o=.d)
 
 .DELETE_ON_ERROR:

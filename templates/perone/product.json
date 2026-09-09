@@ -1,0 +1,1 @@
+{{=JSON.stringify({product: it.product}, null, "\t")}}

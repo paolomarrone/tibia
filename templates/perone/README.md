@@ -1,9 +1,9 @@
 # Perone
 
-`perone` and `perone-make` generate a `.perone` bundle with an ELF shared library
-exposing the Tibia DSP source API through a versioned C ABI.
+`perone` and `perone-make` generate a `.perone` bundle with ELF shared libraries
+and WebAssembly modules exposing the Tibia DSP source API through a versioned C ABI.
 They include the original `plugin.h` or `plugin_cxx.h`
-and export one symbol: `perone_get_api(uint32_t version)`.
+and expose the API through `perone_get_api(uint32_t version)`.
 The public contract is [perone.h](perone.h), independent of the generated,
 per-product `plugin_api.h`.
 
@@ -14,6 +14,7 @@ From the Tibia checkout, for a source plugin in `/path/to/plugin`:
 ./tibia /path/to/plugin/product.json templates/perone out/perone
 ./tibia /path/to/plugin/product.json templates/perone-make out/perone
 make -C out/perone PLUGIN_DIR=/path/to/plugin API_DIR=src
+make -C out/perone PLUGIN_DIR=/path/to/plugin API_DIR=src PERONE_PLATFORM=wasm32
 ```
 
 The build produces a bundle:
@@ -23,20 +24,52 @@ build/<bundleName>.perone/
   product.json
   x86_64-linux/
     <bundleName>.so
+  wasm32/
+    <bundleName>.wasm
 ```
 
 Distribute the entire `.perone` directory. The host reads `product.json` from its
-root and loads the binary from the matching `<architecture>-<os>` directory.
-The platform defaults to `uname -m` followed by the lowercase `uname -s`.
-For cross-compilation, set `PERONE_PLATFORM` to the target, e.g. `aarch64-linux`,
-along with the appropriate compiler and flags. The build currently targets ELF
-platforms; the directory layout can hold binaries for multiple platforms.
+root and loads the binary from the matching platform directory.
+The native platform defaults to `uname -m` followed by the lowercase `uname -s`.
+For native cross-compilation, set `PERONE_PLATFORM` to the target, e.g.
+`aarch64-linux`, along with the appropriate compiler and flags. Native builds
+currently target ELF platforms. `PERONE_PLATFORM=wasm32` selects Clang/LLD and
+produces a standalone Wasm module for browsers and AudioWorklets, without WASI
+or Emscripten. `wasm32` identifies the 32-bit pointer ABI independently of the
+host OS; it is distinct from any future `wasm64` or WASI target.
 Building one platform preserves the other platform directories.
 
 `OUTPUT` overrides the bundle directory, e.g. `OUTPUT=dist/example.perone`.
 Compiler dependency files stay outside the bundle, in the sibling
-`obj/<bundle-directory-name>/<platform>.d`. `make clean` removes the selected
-bundle and its dependency directory.
+`obj/<bundle-directory-name>/<platform>.d`. Wasm runtime objects and their
+dependencies are in `obj/<bundle-directory-name>/wasm32/`. `make clean` removes
+the selected bundle and its dependency directory.
+
+The Wasm build reuses the Web target's allocator, memory functions and basic C++
+allocation operators, copied into the generated `src/wasm/` directory. It defines
+`WASM`; plugins must support this freestanding environment. A full C/C++ standard
+library, exceptions, RTTI and OS services are not provided. Missing functions fail
+at link time. Native build flags and dependencies may need Wasm equivalents.
+
+Each Wasm module exports `memory`, `__indirect_function_table`,
+`__wasm_call_ctors`, `malloc`, `calloc`, `realloc`, `free` and `perone_get_api`.
+Call `__wasm_call_ctors()` once per module instance before using the API.
+`perone_get_api(2)` returns an offset into linear memory; its 16 entries are 32-bit
+indices into the exported function table, in the order declared in `perone.h`.
+Zero still denotes an absent optional entry. Data pointers and `size_t` values
+are 32-bit offsets and sizes; all structures follow the
+[WebAssembly C ABI](https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md).
+
+Host callbacks must be typed Wasm functions installed in that same growable table;
+put their indices into the callback structures in module memory. JavaScript hosts
+can use a small Wasm import/export adapter, as shown in `test/perone_wasm.js`.
+Allocate DSP memory and buffers with the exported allocator. Use the API table's
+`alloc`/`free` pair for plugin instance storage; the exported `free` is for ordinary
+allocations. This preserves alignment for plugin types with stricter requirements.
+Prepare instances, callbacks and buffers before audio processing. Memory growth
+invalidates JavaScript views; recreate them after allocations that grow memory,
+and avoid allocation or table growth in the audio processing callback. The host
+provides its own AudioWorklet integration and messaging queues.
 
 The JSON contains the original `product` object after input merging and overrides,
 without generated fields or build configuration. All product metadata, including
@@ -65,7 +98,8 @@ same arguments and return value, replacing the instance type with `void *`:
 
 `alloc()` and `free()` are the only additional operations. They allocate and
 release storage aligned for the private `plugin` type, using `posix_memalign`
-and `free`. They do not initialize the DSP or run C++ constructors/destructors.
+and `free` natively, or aligned storage from the Wasm allocator. They do not
+initialize the DSP or run C++ constructors/destructors.
 C++ members are constructed by `plugin_init` and destroyed by `plugin_fini`,
 following the source API. `alloc` returns NULL on failure; `free(NULL)` is valid.
 No DSP exception may cross the C ABI.
@@ -120,11 +154,15 @@ The build accepts `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `LDL
 `make`/`perone_make` configuration, following the other targets' directory layout.
 Header dependencies are tracked by the compiler.
 
-`test/run_perone.sh` generates, builds and tests Perone independently of
+`test/run_perone.sh` generates, builds and tests native and Wasm Perone independently of
 `test/run.sh`, using the shared `test/product.json`, `test/plugin.h` and
-`test/plugin_cxx.h`. It compiles the host in `test/perone.c` to exercise audio,
-MIDI, transport, messaging, rate changes and state round trips, and checks the
-bundled JSON. From the Tibia checkout, run both variants with:
+`test/plugin_cxx.h`. The native host is `test/perone.c`; the Wasm host is
+`test/perone_wasm.js`, run with Node.js and the same WebAssembly API as browsers.
+They exercise audio, MIDI, transport, rate changes and state round trips.
+The native host also checks outgoing messages, which the shared test plugins
+disable under `WEB`. The Wasm host checks callback signatures and memory growth.
+The script checks the bundled JSON and requires native C/C++ compilers, Clang with
+`wasm-ld`, and Node.js. From the Tibia checkout, run both variants with:
 
 ```sh
 sh test/run_perone.sh

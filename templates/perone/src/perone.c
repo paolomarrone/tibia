@@ -2,8 +2,12 @@
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200112L
 #endif
+#ifdef __wasm__
+#include "wasm/walloc.h"
+#else
 #include <stdlib.h>
 #include <math.h>
+#endif
 #include "perone.h"
 #include "data.h"
 #include "plugin_api.h"
@@ -17,10 +21,27 @@
 #endif
 
 static void *alloc(void) {
-	void *p;
 	size_t align = __alignof__(plugin);
 	if (align < sizeof(void *)) align = sizeof(void *);
+#ifdef __wasm__
+	if (sizeof(plugin) > SIZE_MAX - sizeof(void *) - (align - 1)) return NULL;
+	void *mem = malloc(sizeof(plugin) + sizeof(void *) + align - 1);
+	if (!mem) return NULL;
+	void *p = (void *)(((uintptr_t)mem + sizeof(void *) + align - 1) & ~(uintptr_t)(align - 1));
+	((void **)p)[-1] = mem;
+	return p;
+#else
+	void *p;
 	return posix_memalign(&p, align, sizeof(plugin)) ? NULL : p;
+#endif
+}
+
+static void release(void *p) {
+#ifdef __wasm__
+	if (p) free(((void **)p)[-1]);
+#else
+	free(p);
+#endif
 }
 
 static int init(void *p, const perone_callbacks *callbacks) {
@@ -93,7 +114,7 @@ const perone_api *perone_get_api(uint32_t version) {
 	(void)plugin_set_parameter;
 	(void)plugin_get_parameter;
 	static const perone_api api = {
-		alloc, free, init, fini, set_sample_rate, mem_req, mem_set, reset, process,
+		alloc, release, init, fini, set_sample_rate, mem_req, mem_set, reset, process,
 #if PERONE_HAS_INPUT
 		set_parameter,
 #else

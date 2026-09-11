@@ -34,15 +34,19 @@ typedef struct {
 #endif
 } plugin_callbacks;
 
+{{?it.product.parameters.find(x => x.direction == "input")}}
+#define PLUGIN_HAS_INPUT_PARAMETERS	1
+{{?}}
+
 {{?it.product.state && it.product.state.dspCustom}}
 typedef struct {
 	void *	handle;
 	void (*lock)(void *handle);
 	void (*unlock)(void *handle);
 	int (*write)(void *handle, const char *data, size_t length);
-{{?it.product.parameters.find(x => x.direction == "input")}}
+# ifdef PLUGIN_HAS_INPUT_PARAMETERS
 	void (*set_parameter)(void *handle, size_t index, float value);
-{{?}}
+# endif
 #ifdef PLUGIN_STATE_CALLBACKS_EXTRA
 	PLUGIN_STATE_CALLBACKS_EXTRA
 #endif
@@ -54,11 +58,11 @@ typedef struct {
 	const char *	format;
 	const char * (*get_bindir)(void *handle);
 	const char * (*get_datadir)(void *handle);
-{{?it.product.parameters.find(x => x.direction == "input")}}
+# ifdef PLUGIN_HAS_INPUT_PARAMETERS
 	void (*set_parameter_begin)(void *handle, size_t index, float value);
 	void (*set_parameter)(void *handle, size_t index, float value);
 	void (*set_parameter_end)(void *handle, size_t index, float value);
-{{?}}
+# endif
 {{?(it.product.messaging && it.product.messaging.uiToDspSize)}}
 	void (*msg_write)(void *handle, size_t size, const void *data);
 {{?}}

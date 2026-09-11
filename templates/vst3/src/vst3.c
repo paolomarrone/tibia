@@ -146,10 +146,6 @@ static const char * getDatadirCb(void *handle) {
 	return datadir;
 }
 
-static double clamp(double x, double m, double M) {
-	return x < m ? m : (x > M ? M : x);
-}
-
 #if DATA_PRODUCT_PARAMETERS_N + DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 static int parameterGetIndexById(Steinberg_Vst_ParamID id) {
 	for (int i = 0; i < DATA_PRODUCT_PARAMETERS_N + 3 * DATA_PRODUCT_BUSES_MIDI_INPUT_N; i++)
@@ -159,6 +155,10 @@ static int parameterGetIndexById(Steinberg_Vst_ParamID id) {
 }
 
 # if DATA_PRODUCT_PARAMETERS_N > 0
+static double clamp(double x, double m, double M) {
+	return x < m ? m : (x > M ? M : x);
+}
+
 static double parameterMap(const ParameterData *data, double v) {
 	return data->flags & DATA_PARAM_MAP_LOG ? data->min * exp(data->mapK * v) : data->min + (data->max - data->min) * v;
 }
@@ -346,7 +346,9 @@ typedef struct pluginInstance {
 #endif
 } pluginInstance;
 
+# if DATA_PRODUCT_PARAMETERS_IN_N > 0 || defined(DATA_STATE_DSP_CUSTOM)
 static void pluginStateLockCb(void *handle) {
+# if DATA_PRODUCT_PARAMETERS_IN_N > 0
 	pluginInstance *p = (pluginInstance *)handle;
 	for (int j = 0; j < SPIN_LIMIT; j++) {
 		if (!atomic_flag_test_and_set(&p->syncLockFlag))
@@ -357,11 +359,18 @@ static void pluginStateLockCb(void *handle) {
 		yield();
 end:
 	p->synced = 0;
+# else
+	(void)handle;
+# endif
 }
 
 static void pluginStateUnlockCb(void *handle) {
+# if DATA_PRODUCT_PARAMETERS_IN_N > 0
 	pluginInstance *p = (pluginInstance *)handle;
 	atomic_flag_clear(&p->syncLockFlag);
+# else
+	(void)handle;
+# endif
 }
 
 static int pluginStateWriteCb(void *handle, const char *data, size_t length) {
@@ -377,20 +386,21 @@ static int pluginStateWriteCb(void *handle, const char *data, size_t length) {
 	}
 	return 0;
 }
+#endif
 
-# if DATA_PRODUCT_PARAMETERS_IN_N > 0
+#if DATA_PRODUCT_PARAMETERS_IN_N > 0
 static void pluginStateSetParameterCb(void *handle, size_t index, float value) {
 	size_t i = index;
-#  ifdef DATA_PARAM_LATENCY_INDEX
+# ifdef DATA_PARAM_LATENCY_INDEX
 	if (i >= DATA_PARAM_LATENCY_INDEX)
 		i--;
-#  endif
+# endif
 	pluginInstance *p = (pluginInstance *)handle;
 	size_t ii = parameterInfoToDataIndex[i];
 	p->parametersInSync[ii] = parameterAdjust(parameterInData + ii, value);
 	p->loaded = 1;
 }
-# endif
+#endif
 
 static Steinberg_tresult pluginQueryInterface(pluginInstance *p, const Steinberg_TUID iid, void ** obj) {
 	// This seems to violate the way multiple inheritance should work in COM, but hosts like it, so what do I know...
@@ -525,6 +535,8 @@ static Steinberg_tresult pluginInitialize(void *thisInterface, struct Steinberg_
 	atomic_flag_clear(&p->syncLockFlag);
 	p->synced = 1;
 	p->loaded = 0;
+#else
+	(void)plugin_set_parameter;
 #endif
 #if DATA_PRODUCT_PARAMETERS_OUT_N > 0
 	for (size_t i = 0; i < DATA_PRODUCT_PARAMETERS_OUT_N; i++)
@@ -807,6 +819,8 @@ static Steinberg_tresult pluginSetState(void* thisInterface, struct Steinberg_IB
 		pluginStateSetParameterCb(p, parameterInData[i].index, v.f);
 	}
 	pluginStateUnlockCb(p);
+# else
+	(void)p;
 # endif
 #endif
 
@@ -978,8 +992,8 @@ static Steinberg_tresult pluginSetProcessing(void* thisInterface, Steinberg_TBoo
 	return Steinberg_kNotImplemented;
 }
 
-static void processParams(pluginInstance *p, struct Steinberg_Vst_ProcessData *data, char before) {
 #if DATA_PRODUCT_PARAMETERS_IN_N + DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
+static void processParams(pluginInstance *p, struct Steinberg_Vst_ProcessData *data, char before) {
 	char locked = !atomic_flag_test_and_set(&p->syncLockFlag);
 	if (locked) {
 		if (!p->synced) {
@@ -1072,8 +1086,8 @@ static void processParams(pluginInstance *p, struct Steinberg_Vst_ProcessData *d
 
 	if (locked)
 		atomic_flag_clear(&p->syncLockFlag);
-#endif
 }
+#endif
 
 static Steinberg_tresult pluginProcess(void* thisInterface, struct Steinberg_Vst_ProcessData* data) {
 	TRACE("plugin IAudioProcessor process\n");
@@ -1092,7 +1106,9 @@ static Steinberg_tresult pluginProcess(void* thisInterface, struct Steinberg_Vst
 
 	pluginInstance *p = (pluginInstance *)((char *)thisInterface - offsetof(pluginInstance, vtblIAudioProcessor));
 
+#if DATA_PRODUCT_PARAMETERS_IN_N + DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 	processParams(p, data, 1);
+#endif
 
 #if DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 	if (data->inputEvents != NULL) {
@@ -1227,7 +1243,9 @@ static Steinberg_tresult pluginProcess(void* thisInterface, struct Steinberg_Vst
 	plugin_process(&p->p, NULL, NULL, data->numSamples);
 #endif
 
+#if DATA_PRODUCT_PARAMETERS_IN_N + DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 	processParams(p, data, 0);
+#endif
 
 #if DATA_PRODUCT_PARAMETERS_OUT_N > 0
 	for (Steinberg_int32 i = 0; i < DATA_PRODUCT_PARAMETERS_OUT_N; i++) {
@@ -1750,6 +1768,8 @@ static Steinberg_tresult plugViewAttached(void* thisInterface, void* parent, Ste
 # endif
 # if DATA_PRODUCT_PARAMETERS_N > 0
 	plugViewUpdateAllParameters(v);
+# else
+	(void)plugin_ui_set_parameter;
 # endif
 	return Steinberg_kResultTrue;
 }
@@ -2131,6 +2151,8 @@ static Steinberg_tresult controllerSetComponentState(void* thisInterface, struct
 		c->parametersIn[i] = parameterAdjust(parameterInData + i, v.f);
 	}
 
+# else
+	(void)c;
 # endif
 #endif
 
@@ -2189,6 +2211,7 @@ static Steinberg_tresult controllerGetParameterInfo(void* thisInterface, Steinbe
 #endif
 }
 
+#if DATA_PRODUCT_PARAMETERS_N + DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 static void dToStr(double v, Steinberg_Vst_String128 s, int precision) {
 	// FIXME: with huge values this could lead to buffer overflows
 
@@ -2232,6 +2255,7 @@ static void dToStr(double v, Steinberg_Vst_String128 s, int precision) {
 
 	s[i] = '\0';
 }
+#endif
 
 static Steinberg_tresult controllerGetParamStringByValue(void* thisInterface, Steinberg_Vst_ParamID id, Steinberg_Vst_ParamValue valueNormalized, Steinberg_Vst_String128 string) {
 	(void)thisInterface;
@@ -2506,6 +2530,7 @@ static Steinberg_tresult controllerGetMidiControllerAssignment(void* thisInterfa
 	(void)channel;
 
 	TRACE("controller getMidiControllerAssignment\n");
+#if DATA_PRODUCT_BUSES_MIDI_INPUT_N > 0
 	if (busIndex < 0 || busIndex >= DATA_PRODUCT_BUSES_MIDI_INPUT_N)
 		return Steinberg_kInvalidArgument;
 	switch (midiControllerNumber) {
@@ -2525,6 +2550,13 @@ static Steinberg_tresult controllerGetMidiControllerAssignment(void* thisInterfa
 		return Steinberg_kResultFalse;
 		break;
 	}
+#else
+	(void)busIndex;
+	(void)channel;
+	(void)midiControllerNumber;
+	(void)id;
+	return Steinberg_kInvalidArgument;
+#endif
 }
 
 static Steinberg_Vst_IMidiMappingVtbl controllerVtblIMidiMapping = {

@@ -67,14 +67,12 @@ typedef struct {
 #endif
 } plugin_ui_callbacks;
 
-{{?it.product.parameters.length > 0}}
 enum {
 	{{~it.product.parameters :p}}
 	plugin_parameter_{{=p.id}},
 	{{~}}
 	plugin_parameter__count
 };
-{{?}}
 
 {{?it.product.state}}
 #define PLUGIN_HAS_STATE	1

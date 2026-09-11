@@ -233,32 +233,40 @@ static const char * get_bundle_path_cb(void *handle) {
 
 #ifdef DATA_STATE_DSP_CUSTOM
 static void state_lock_cb(void *handle) {
+# if DATA_PRODUCT_CONTROL_INPUTS_N > 0
 	plugin_instance * i = (plugin_instance *)handle;
 	for (int j = 0; j < SPIN_LIMIT; j++) {
-# ifdef __cplusplus
+#  ifdef __cplusplus
 		if (!i->sync_lock_flag.test_and_set())
-# else
+#  else
 		if (!atomic_flag_test_and_set(&i->sync_lock_flag))
-# endif
+#  endif
 			goto end;
 		CPU_PAUSE
 	}
-# ifdef __cplusplus
+#  ifdef __cplusplus
 	while (i->sync_lock_flag.test_and_set())
-# else
+#  else
 	while (atomic_flag_test_and_set(&i->sync_lock_flag))
-# endif
+#  endif
 		yield();
 end:
 	i->synced = 0;
+# else
+	(void)handle;
+# endif
 }
 
 static void state_unlock_cb(void *handle) {
+# if DATA_PRODUCT_CONTROL_INPUTS_N > 0
 	plugin_instance * i = (plugin_instance *)handle;
-# ifdef __cplusplus
+#  ifdef __cplusplus
 	i->sync_lock_flag.clear();
-# else
+#  else
 	atomic_flag_clear(&i->sync_lock_flag);
+#  endif
+# else
+	(void)handle;
 # endif
 }
 

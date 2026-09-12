@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Perone browser host. GPL-3.0-or-later. -->
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perone</title>
+<style>
+	:root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+	body { max-width: 760px; margin: 3rem auto; padding: 0 1.5rem; }
+	h1 { margin-bottom: .25rem; }
+	#description { opacity: .7; margin-bottom: 2rem; }
+	button, input, select { font: inherit; }
+	button { padding: .5rem 1rem; cursor: pointer; }
+	#controls { margin: 2rem 0; }
+	.perone-controls label { display: grid; grid-template-columns: 1fr 2fr 7rem; align-items: center; gap: 1rem; padding: .75rem 0; }
+	.perone-controls input, .perone-controls meter, .perone-controls select { width: 100%; min-width: 0; }
+	.perone-controls output { text-align: right; font-variant-numeric: tabular-nums; }
+	#status { min-height: 1.5em; }
+	@media (max-width: 500px) { .perone-controls label { grid-template-columns: 1fr 1fr; } .perone-controls output { grid-column: 2; } }
+</style>
+<h1>Perone</h1>
+<p id="description">Load a plugin to begin.</p>
+<button id="start">Start</button>
+<button id="stop" disabled>Stop</button>
+<label>Audio input <input id="audio" type="file" accept="audio/*"></label>
+<p id="status" role="status"></p>
+<div id="controls"></div>
+<script type="module">
+	import { PeroneNode } from "./perone.js";
+	const bundle = new URLSearchParams(location.search).get("bundle") || "../c/build/tibia-test.perone/";
+	const start = document.querySelector("#start"), stop = document.querySelector("#stop");
+	const audio = document.querySelector("#audio"), status = document.querySelector("#status"), controls = document.querySelector("#controls");
+	let context, node, source;
+	async function close() {
+		source?.stop(); source = null;
+		try { if (node) await node.dispose(); }
+		finally { if (context) await context.close(); node = null; context = null; start.disabled = false; stop.disabled = true; }
+	}
+	start.onclick = async () => {
+		start.disabled = true; status.textContent = "Loading…";
+		try {
+			context = new AudioContext();
+			await context.resume();
+			node = await PeroneNode.create(context, bundle);
+			node.addEventListener("error", event => { status.textContent = event.detail.message; });
+			node.connect(context.destination);
+			await node.ready;
+			await node.mount(controls);
+			document.querySelector("h1").textContent = node.product.name;
+			document.querySelector("#description").textContent = node.product.description || "";
+			if (audio.files[0] && node.numberOfInputs) {
+				const buffer = await context.decodeAudioData(await audio.files[0].arrayBuffer());
+				source = new AudioBufferSourceNode(context, { buffer, loop: true });
+				source.connect(node); source.start();
+			}
+			stop.disabled = false;
+			status.textContent = node.numberOfInputs && !source ? "Ready. Choose an audio file and restart to hear the effect." : "Playing.";
+		} catch (error) { status.textContent = error.message; await close(); }
+	};
+	stop.onclick = async () => { stop.disabled = true; await close(); status.textContent = "Stopped."; };
+</script>
+</html>

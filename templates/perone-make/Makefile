@@ -66,3 +66,4 @@ $(BUILD_DATA_DIR)/product.json: $(DATA_DIR)/product.json
 -include $(DEPFILE) $(WASM_OBJS:.o=.d)
 clean:
 	rm -fr $(BUNDLE_DIR) $(BUILD_OBJ_DIR)
+include $(dir $(firstword $(MAKEFILE_LIST)))ui.mk

@@ -6,6 +6,9 @@ They include the original `plugin.h` or `plugin_cxx.h`
 and expose the API through `perone_get_api(uint32_t version)`.
 The public contract is [perone.h](perone.h), independent of the generated,
 per-product `plugin_api.h`.
+Optional native UIs use the separate [perone_ui.h](perone_ui.h) contract.
+The [browser host](../perone-web/README.md) loads custom web UIs or generates
+controls from the JSON when no custom UI is declared.
 
 From the Tibia checkout, for a source plugin in `/path/to/plugin`:
 
@@ -24,8 +27,10 @@ build/<bundleName>.perone/
   product.json
   x86_64-linux/
     <bundleName>.so
+    <bundleName>-ui.so   (optional)
   wasm32/
     <bundleName>.wasm
+  ui/                   (optional web UI files)
 ```
 
 Distribute the entire `.perone` directory. The host reads `product.json` from its
@@ -140,8 +145,52 @@ Optional function pointers are NULL when the product does not declare the
 corresponding capability: input/output parameters, MIDI input, transport sync,
 UI-to-DSP messaging or custom DSP state (`state.dspCustom`). Callback fields remain
 present in the public types regardless of these capabilities. Parameter function
-stubs are still expected by the source API. UI embedding is outside the DSP ABI;
+stubs are still expected by the source API. UI embedding uses its own optional ABI;
 MIDI output is rejected because the source API has no corresponding callback.
+
+The native UI library exports `perone_ui_get_api(PERONE_UI_ABI_VERSION)`, currently
+UI ABI version 1. Its table forwards `plugin_ui_get_default_size`, `plugin_ui_create`,
+`plugin_ui_free`, `plugin_ui_idle`, `plugin_ui_set_parameter` and `plugin_ui_msg_in`.
+`get_widget` exposes the source UI's `widget` field through the opaque API. DSP ABI
+version 2 is unchanged; loading the DSP does not load the UI or its dependencies.
+
+The first native UI backend is X11 on Linux. Pass `PERONE_UI_X11` to `create`,
+with the source API's `has_parent` and `parent` arguments. Unsupported window APIs
+return NULL. Parent and widget handles are X11 window IDs cast through `uintptr_t`
+to `void *`. The host owns the parent, resizes the child using X11 when allowed by
+`product.ui`, calls `idle` periodically on the UI thread, and frees the UI before
+unloading the library. The wrapper does not prescribe a drawing toolkit.
+
+UI callbacks preserve parameter indices, product units and gesture values:
+`set_parameter_begin`, `set_parameter`, `set_parameter_end`, directory callbacks
+and `msg_write`. They receive `format = "perone"` at the source boundary. The host
+applies values carried by all three gesture callbacks, records automation as
+needed, sends current values to each newly created UI, and routes DSP messages to
+`msg_in`. Source UIs may assume values are within their declared parameter ranges.
+The host owns synchronization and message queues between UI and audio threads.
+
+Generate the usual Perone project and run `make ui` to build the native UI only.
+`UI_PLUGIN_DIR` defaults to `PLUGIN_DIR` and selects `plugin_ui.h` or
+`plugin_ui_cxx.h`. Supply toolkit sources and flags independently of the DSP, e.g.
+for the shared Tibia test UI and a Vinci checkout:
+
+```sh
+make -C out/perone/c ui UI_PLUGIN_DIR=/path/to/tibia/test \
+    UI_CPPFLAGS=-I/path/to/vinci UI_C_SRCS_EXTRA=/path/to/vinci/vinci-xcb.c UI_LDLIBS=-lxcb
+```
+
+`UI_CXX_SRCS_EXTRA`, `UI_LDFLAGS`, and the usual `CFLAGS`/`CXXFLAGS`/`CPPFLAGS` are
+also supported. UI object files and dependencies stay in
+`obj/<bundle-directory-name>/<platform>-ui/`. A regular `make` builds only the DSP
+and JSON, even when UI headers are present. Native UI builds for Wasm and other
+window systems are rejected explicitly.
+
+Web UIs are ordinary ES modules and assets. Declare their bundle-relative entry
+in the source JSON, e.g. `product.ui.web = "ui/index.js"`, then package a dedicated
+source directory with `make ui-web UI_WEB_DIR=/path/to/web-ui`. This copies its
+contents into `ui/` without removing other platform binaries. The JSON remains the
+authored product object; no UI descriptor or metadata table is added to C.
+See the [browser UI contract](../perone-web/README.md) for lifecycle and callbacks.
 
 Brickworks needs its original common header and DSP includes. With `../brickworks`,
 use an example's `src` as `PLUGIN_DIR` and pass absolute paths to
@@ -172,3 +221,19 @@ Generated projects and bundles stay in `out/perone/c` and `out/perone/cxx`;
 the host executable is `out/perone/test`. The five values passed to the host
 are the input parameter defaults from `test/product.json`, in their original
 order.
+
+For native UI integration tests, install the X11/XCB development libraries and
+provide a Vinci checkout and an X11 display (a virtual display is also suitable):
+
+```sh
+VINCI_DIR=/path/to/vinci ./test/run_perone_ui.sh
+```
+
+This loads separate C/C++ UI and DSP libraries, checks embedding and resize in an
+unmapped test parent, and exercises gestures and bidirectional messages. It uses
+the existing `test/plugin_ui.h` without changing it.
+
+For browser tests, provide Playwright and its Chromium browser, then run
+`node test/perone_web.js` after `test/run_perone.sh`. `PERONE_PLAYWRIGHT` can point
+to an existing Playwright package and `PERONE_CHROMIUM` to an existing Chromium
+executable. These tests cover generic/custom UIs, parameters, messages and cleanup.

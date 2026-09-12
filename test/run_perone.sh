@@ -17,6 +17,8 @@ cp test/vars-pre.mk out/perone/c
 cp test/plugin_cxx.h out/perone/cxx/src
 cp test/vars-pre.mk out/perone/cxx
 
+./tibia --common templates/perone-web out/perone/web
+
 cc -std=c99 -Wall -Wextra -Werror -Itemplates/perone test/perone.c -ldl -lm -o out/perone/test
 perone_platform="$(uname -m)-$(uname -s | tr A-Z a-z)"
 for variant in c cxx; do

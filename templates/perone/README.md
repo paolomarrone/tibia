@@ -6,9 +6,11 @@ They include the original `plugin.h` or `plugin_cxx.h`
 and expose the API through `perone_get_api(uint32_t version)`.
 The public contract is [perone.h](perone.h), independent of the generated,
 per-product `plugin_api.h`.
-Optional native UIs use the separate [perone_ui.h](perone_ui.h) contract.
+Optional native and Wasm UIs use the separate [perone_ui.h](perone_ui.h) contract.
 The [browser host](../perone-web/README.md) loads custom web UIs or generates
 controls from the JSON when no custom UI is declared.
+[perone-vinci-web](../perone-vinci-web/README.md) compiles the original Vinci UI
+for the browser and packages its reusable JavaScript adapter.
 
 From the Tibia checkout, for a source plugin in `/path/to/plugin`:
 
@@ -30,6 +32,7 @@ build/<bundleName>.perone/
     <bundleName>-ui.so   (optional)
   wasm32/
     <bundleName>.wasm
+    <bundleName>-ui.wasm (optional)
   ui/                   (optional web UI files)
 ```
 
@@ -148,7 +151,7 @@ present in the public types regardless of these capabilities. Parameter function
 stubs are still expected by the source API. UI embedding uses its own optional ABI;
 MIDI output is rejected because the source API has no corresponding callback.
 
-The native UI library exports `perone_ui_get_api(PERONE_UI_ABI_VERSION)`, currently
+The UI library exports `perone_ui_get_api(PERONE_UI_ABI_VERSION)`, currently
 UI ABI version 1. Its table forwards `plugin_ui_get_default_size`, `plugin_ui_create`,
 `plugin_ui_free`, `plugin_ui_idle`, `plugin_ui_set_parameter` and `plugin_ui_msg_in`.
 `get_widget` exposes the source UI's `widget` field through the opaque API. DSP ABI
@@ -182,8 +185,18 @@ make -C out/perone/c ui UI_PLUGIN_DIR=/path/to/tibia/test \
 `UI_CXX_SRCS_EXTRA`, `UI_LDFLAGS`, and the usual `CFLAGS`/`CXXFLAGS`/`CPPFLAGS` are
 also supported. UI object files and dependencies stay in
 `obj/<bundle-directory-name>/<platform>-ui/`. A regular `make` builds only the DSP
-and JSON, even when UI headers are present. Native UI builds for Wasm and other
-window systems are rejected explicitly.
+and JSON, even when UI headers are present. `make ui PERONE_PLATFORM=wasm32`
+builds a separate Wasm UI with its own allocator, function table and memory;
+toolkit sources and libraries must also support Wasm. Other window systems are
+rejected explicitly.
+
+Wasm UIs use `PERONE_UI_WEB` with toolkit-owned parent/widget tokens. The seven
+table entries and seven callback fields keep the layout declared in `perone_ui.h`,
+using wasm32 pointers and function-table indices. The module exports
+`perone_ui_get_api`, memory, the growable table, constructors and allocation
+functions, plus any exports needed by the toolkit adapter. UI ABI version 1 and
+DSP ABI version 2 are unchanged. See [perone-vinci-web](../perone-vinci-web/README.md)
+for the Vinci build, loading and lifecycle contract.
 
 Web UIs are ordinary ES modules and assets. Declare their bundle-relative entry
 in the source JSON, e.g. `product.ui.web = "ui/index.js"`, then package a dedicated
@@ -237,3 +250,5 @@ For browser tests, provide Playwright and its Chromium browser, then run
 `node test/perone_web.js` after `test/run_perone.sh`. `PERONE_PLAYWRIGHT` can point
 to an existing Playwright package and `PERONE_CHROMIUM` to an existing Chromium
 executable. These tests cover generic/custom UIs, parameters, messages and cleanup.
+The separate `test/run_perone_ui_web.sh` and `test/perone_ui_web.js` build and test
+the original Vinci UI in Wasm, including its real canvas pixels and DSP connection.

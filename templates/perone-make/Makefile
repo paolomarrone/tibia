@@ -7,6 +7,7 @@ PLUGIN_DIR ?= src
 API_DIR ?= $(PLUGIN_DIR)
 MKINC_DIR ?= $(COMMON_DIR)
 -include $(MKINC_DIR)/vars-pre.mk
+-include $(MKINC_DIR)/vars-extra.mk
 CFLAGS ?= -O2 -Wall -Wextra
 CXXFLAGS ?= $(CFLAGS)
 PLUGIN := $(firstword $(wildcard $(PLUGIN_DIR)/plugin_cxx.h $(PLUGIN_DIR)/plugin.h))
@@ -67,3 +68,4 @@ $(BUILD_DATA_DIR)/product.json: $(DATA_DIR)/product.json
 clean:
 	rm -fr $(BUNDLE_DIR) $(BUILD_OBJ_DIR)
 include $(dir $(firstword $(MAKEFILE_LIST)))ui.mk
+-include $(MKINC_DIR)/rules-extra.mk

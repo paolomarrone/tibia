@@ -1,4 +1,4 @@
-/* Tibia Perone UI wrapper (X11). GPL-3.0-or-later. */
+/* Tibia Perone UI wrapper (X11 and WebAssembly). GPL-3.0-or-later. */
 #include <stdlib.h>
 #include "perone_ui.h"
 #include "data.h"
@@ -10,7 +10,11 @@
 #endif
 
 static void *create(uint32_t window_api, char has_parent, void *parent, const perone_ui_callbacks *callbacks) {
+#ifdef __wasm__
+	if (window_api != PERONE_UI_WEB) return NULL;
+#else
 	if (window_api != PERONE_UI_X11) return NULL;
+#endif
 	plugin_ui_callbacks cbs = {
 		callbacks->handle, "perone", callbacks->get_bindir, callbacks->get_datadir,
 #if PERONE_HAS_INPUT

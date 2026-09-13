@@ -8,6 +8,7 @@ module.exports = function (data, api, outputCommon, outputData) {
 	api.copyFile("src/perone_ui.c", "src/perone_ui.c");
 	for (const file of ["walloc.h", "walloc.c", "string.h", "string.c", "new", "new.cpp"])
 		api.copyFile("../web/src/" + file, "src/wasm/" + file);
+	api.copyFile("src/wasm/stdlib.h", "src/wasm/stdlib.h");
 	api.generateFileFromTemplateFile("src/data.h", "src/data.h", data);
 	api.generateFileFromTemplateFile("product.json", "product.json", data);
 };

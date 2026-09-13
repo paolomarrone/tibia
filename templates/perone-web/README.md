@@ -3,6 +3,10 @@
 This optional template provides a small browser host for `.perone` bundles.
 The DSP runs in an AudioWorklet. UI code runs in the page and communicates through
 the host's parameter and message methods. No framework or Wasm UI renderer is required.
+To reuse a C/C++ Vinci UI, add the optional
+[perone-vinci-web](../perone-vinci-web/README.md) template to the plugin build.
+It packages a separate Wasm UI and the `ui/index.js` adapter, loaded through the
+same custom UI contract below.
 
 Generate the host beside the test bundles and serve the checkout over HTTP:
 
@@ -89,5 +93,5 @@ the Wasm adapter handles memory-view invalidation if the plugin grows memory.
 Audio bus and channel order follows the JSON. An absent optional input is passed
 as NULL; a required disconnected input receives silence. Mono inputs are downmixed,
 and a mono connection to a stereo bus is duplicated. A DSP without audio outputs
-gets a silent Web Audio output to keep its processing active. The native
-`plugin_ui_*` graphics code is not compiled by this template.
+gets a silent Web Audio output to keep its processing active. This host template
+does not compile `plugin_ui_*`; that is handled by the plugin's optional UI build.

@@ -23,7 +23,7 @@
 static void *alloc(void) {
 	size_t align = __alignof__(plugin);
 	if (align < sizeof(void *)) align = sizeof(void *);
-#ifdef __wasm__
+#if defined(__wasm__) || defined(_WIN32)
 	if (sizeof(plugin) > SIZE_MAX - sizeof(void *) - (align - 1)) return NULL;
 	void *mem = malloc(sizeof(plugin) + sizeof(void *) + align - 1);
 	if (!mem) return NULL;
@@ -37,7 +37,7 @@ static void *alloc(void) {
 }
 
 static void release(void *p) {
-#ifdef __wasm__
+#if defined(__wasm__) || defined(_WIN32)
 	if (p) free(((void **)p)[-1]);
 #else
 	free(p);

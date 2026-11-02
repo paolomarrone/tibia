@@ -11,9 +11,10 @@ assert.deepEqual(WebAssembly.Module.imports(module_), []);
 const wasm = new WebAssembly.Instance(module_).exports;
 wasm.__wasm_call_ctors();
 assert.equal(wasm.perone_get_api(1), 0);
-assert.equal(wasm.perone_get_api(3), 0);
-const api_ptr = wasm.perone_get_api(2);
+assert.equal(wasm.perone_get_api(4), 0);
+const api_ptr = wasm.perone_get_api(3);
 assert(api_ptr);
+assert.equal(wasm.perone_get_api(2), api_ptr);
 const names = ["alloc", "free", "init", "fini", "set_sample_rate", "mem_req", "mem_set", "reset", "process",
 	"set_parameter", "get_parameter", "midi_msg_in", "set_transport", "msg_in", "state_save", "state_load"];
 const table = wasm.__indirect_function_table;
@@ -69,7 +70,10 @@ const restore = callback([0x7f, 0x7f, 0x7d], null, (handle, index, value) => {
 	restored[index] = value;
 	if (restore_instance) api.set_parameter(restore_instance, index, value);
 });
-const callbacks = words([42, 0, 0, msg_write]);
+const callbacks = words([42, 0, 0, msg_write, 0]);
+// ABI 2 callers have only four fields; products without MIDI output still accept them.
+const legacy = words([42, 0, 0, msg_write]), old = api.alloc(); assert(old);
+assert.equal(api.init(old, legacy), 0); api.fini(old); api.free(old);
 const state_callbacks = words([42, lock, unlock, write, restore]);
 const instance = api.alloc();
 assert(instance && instance % 8 == 0);

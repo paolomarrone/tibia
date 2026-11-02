@@ -81,6 +81,31 @@ async function main() {
 			await page.close();
 			console.log("OK: browser generic UI, gain/bypass, meters and gesture lifecycle", variant);
 		}
+		for (const variant of ["c", "cxx"]) {
+			const page = await browser.newPage(), errors = [];
+			page.on("pageerror", error => errors.push(error.message));
+			await page.goto(origin + "/out/perone/web/index.html");
+			await page.locator("h1").click();
+			await page.evaluate(async variant => {
+				const { PeroneNode } = await import("./perone.js");
+				const context = new AudioContext(); await context.resume();
+				const node = await PeroneNode.create(context, "/out/perone/midi/" + variant + "/build/tibia-midi-test.perone/");
+				const events = [];
+				node.addEventListener("midi", e => events.push(e.detail));
+				node.connect(context.destination); await node.ready;
+				node.set_parameter(0, -12); node.set_parameter(1, 127);
+				node.midi_msg_in(0, [0x93, 72, 100]); node.midi_msg_in(0, [0x83, 72, 64]);
+				window.midiHost = { context, node, events };
+			}, variant);
+			await page.waitForFunction(() => midiHost.events.length == 2);
+			assert.deepEqual(await page.evaluate(() => midiHost.events.map(e => ({ bus: e.bus, offset: e.offset, data: Array.from(e.data) }))), [
+				{ bus: 1, offset: 127, data: [0x93, 60, 100] }, { bus: 1, offset: 127, data: [0x83, 60, 64] }
+			]);
+			assert(await page.evaluate(() => midiHost.events.every(e => Number.isInteger(e.frame) && e.frame % 128 == 127)));
+			await page.evaluate(async () => { await midiHost.node.dispose(); await midiHost.context.close(); });
+			assert.deepEqual(errors, []); await page.close();
+			console.log("OK: browser MIDI-only effect, parameters, output bytes and frame timestamps", variant);
+		}
 		const page = await browser.newPage(), errors = [];
 		page.on("pageerror", error => errors.push(error.message));
 		await page.goto(origin + "/out/perone/web/index.html");

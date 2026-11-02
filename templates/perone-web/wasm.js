@@ -3,23 +3,30 @@ const entries = ["alloc", "free", "init", "fini", "set_sample_rate", "mem_req", 
 	"set_parameter", "get_parameter", "midi_msg_in", "set_transport", "msg_in", "state_save", "state_load"];
 
 export class WasmPlugin {
-	constructor(binary, product, rate, message) {
+	constructor(binary, product, rate, message, midi_output) {
 		this.product = product;
 		this.owned = [];
 		this.wasm = new WebAssembly.Instance(new WebAssembly.Module(binary)).exports;
 		const w = this.wasm;
 		w.__wasm_call_ctors();
-		const ptr = w.perone_get_api(2);
-		if (!ptr) throw Error("Unsupported Perone DSP ABI");
+		const midiOut = product.buses.some(b => b.type == "midi" && b.direction == "output");
+		const v3 = w.perone_get_api(3), ptr = v3 || w.perone_get_api(2);
+		if (!ptr || (midiOut && !v3)) throw Error("Unsupported Perone DSP ABI");
 		this.api = Object.fromEntries(Array.from(new Uint32Array(w.memory.buffer, ptr, entries.length),
 			(index, i) => [entries[i], index ? w.__indirect_function_table.get(index) : null]));
 		try {
-			const callbacks = this.alloc(16);
+			const callbacks = this.alloc(20);
 			const msg = this.callback([0x7f, 0x7f, 0x7f], (handle, size, data) => {
 				if (size > (product.messaging?.dspToUiSize || 0)) throw Error("DSP message exceeds product limit");
 				message(new Uint8Array(w.memory.buffer, data, size).slice());
 			});
-			new Uint32Array(w.memory.buffer, callbacks, 4).set([0, 0, 0, msg]);
+			if (midiOut && typeof midi_output != "function") throw Error("MIDI output callback is required");
+			const midi = midiOut ? this.callback([0x7f, 0x7f, 0x7f, 0x7f], (handle, bus, data, offset) => {
+				if (product.buses[bus]?.type != "midi" || product.buses[bus]?.direction != "output"
+					|| !(offset >= 0 && offset < this.processFrames)) throw Error("Invalid MIDI output");
+				midi_output(bus, new Uint8Array(w.memory.buffer, data, 3).slice(), this.processOffset + offset);
+			}) : 0;
+			new Uint32Array(w.memory.buffer, callbacks, 5).set([0, 0, 0, msg, midi]);
 			this.instance = this.api.alloc();
 			if (!this.instance) throw Error("Cannot allocate DSP instance");
 			if (this.api.init(this.instance, callbacks)) throw Error("Cannot initialize DSP");
@@ -88,7 +95,9 @@ export class WasmPlugin {
 					} else view.fill(0);
 				}
 			}
-			this.api.process(this.instance, this.inputs.ptr, this.outputs.ptr, count);
+			this.processOffset = offset; this.processFrames = count;
+			try { this.api.process(this.instance, this.inputs.ptr, this.outputs.ptr, count); }
+			finally { this.processFrames = 0; }
 			this.refresh();
 			channel = 0;
 			for (let bus = 0; bus < this.outputBuses.length; bus++)

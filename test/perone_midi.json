@@ -1,0 +1,16 @@
+{
+	"product": {
+		"name": "Tibia MIDI test", "version": "1.0.0", "buildVersion": 0,
+		"bundleName": "tibia-midi-test",
+		"buses": [
+			{ "type": "midi", "direction": "input", "name": "In", "shortName": "In", "id": "midi_in" },
+			{ "type": "midi", "direction": "output", "name": "Out", "shortName": "Out", "id": "midi_out" }
+		],
+		"parameters": [
+			{ "name": "Transpose", "shortName": "Transpose", "id": "transpose", "direction": "input",
+			  "defaultValue": 12, "minimum": -24, "maximum": 24, "integer": true, "map": "linear" },
+			{ "name": "Delay", "shortName": "Delay", "id": "delay", "direction": "input",
+			  "defaultValue": 0, "minimum": 0, "maximum": 1024, "integer": true, "map": "linear" }
+		]
+	}
+}

@@ -9,7 +9,9 @@ class PeroneProcessor extends AudioWorkletProcessor {
 		};
 		try {
 			const { binary, product } = options.processorOptions;
-			this.plugin = new WasmPlugin(binary, product, sampleRate, data => this.port.postMessage({ type: "message", data }));
+			this.plugin = new WasmPlugin(binary, product, sampleRate,
+				data => this.port.postMessage({ type: "message", data }),
+				(bus, data, offset) => this.port.postMessage({ type: "midi", bus, data, offset, frame: currentFrame + offset }));
 			this.outputs = product.parameters.flatMap((p, index) => p.direction == "output" ? [{ index, value: NaN }] : []);
 			this.elapsed = 0;
 			this.port.postMessage({ type: "ready" });

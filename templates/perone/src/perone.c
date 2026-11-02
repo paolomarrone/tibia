@@ -45,10 +45,16 @@ static void release(void *p) {
 }
 
 static int init(void *p, const perone_callbacks *callbacks) {
+#if PERONE_HAS_MIDI_OUT
+	if (!callbacks->midi_msg_out) return -1;
+#endif
 	plugin_callbacks cbs = {
 		callbacks->handle, "perone", callbacks->get_bindir, callbacks->get_datadir,
 #if PERONE_HAS_MSG_OUT
-		callbacks->msg_write
+		callbacks->msg_write,
+#endif
+#if PERONE_HAS_MIDI_OUT
+		callbacks->midi_msg_out
 #endif
 	};
 	return plugin_init((plugin *)p, &cbs);
@@ -146,5 +152,5 @@ const perone_api *perone_get_api(uint32_t version) {
 		NULL, NULL
 #endif
 	};
-	return version == PERONE_ABI_VERSION ? &api : NULL;
+	return version == PERONE_ABI_VERSION || (!PERONE_HAS_MIDI_OUT && version == 2) ? &api : NULL;
 }

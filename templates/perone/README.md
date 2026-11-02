@@ -62,7 +62,7 @@ at link time. Native build flags and dependencies may need Wasm equivalents.
 Each Wasm module exports `memory`, `__indirect_function_table`,
 `__wasm_call_ctors`, `malloc`, `calloc`, `realloc`, `free` and `perone_get_api`.
 Call `__wasm_call_ctors()` once per module instance before using the API.
-`perone_get_api(2)` returns an offset into linear memory; its 16 entries are 32-bit
+`perone_get_api(3)` returns an offset into linear memory; its 16 entries are 32-bit
 indices into the exported function table, in the order declared in `perone.h`.
 Zero still denotes an absent optional entry. Data pointers and `size_t` values
 are 32-bit offsets and sizes; all structures follow the
@@ -84,10 +84,16 @@ without generated fields or build configuration. All product metadata, including
 bus layouts, parameter defaults and messaging limits, stays in this file.
 The library contains no metadata descriptors, default tables or index maps.
 
-ABI version 2 replaces the earlier `create`/`destroy` interface. Unsupported
-versions, including version 1, return NULL. The function table and callback types
-have a fixed layout across products. Keep the library loaded while using its
-table or instances.
+ABI version 3 appends `midi_msg_out` to `perone_callbacks`; the 16-entry function
+table is unchanged from ABI 2. In wasm32 the callback structure is now five i32
+words (20 bytes): handle, get_bindir, get_datadir, msg_write, midi_msg_out.
+Products without MIDI outputs also accept ABI 2, and their `init` never reads the
+fifth field, so old hosts and sources keep working. Products with MIDI outputs
+require ABI 3 and return NULL for ABI 2. New hosts should try version 3 first and
+fall back to version 2 for existing binaries without MIDI outputs. Other versions,
+including version 1, return NULL. The function table and callback types have a
+fixed layout across products. Keep the library loaded while using its table or
+instances.
 
 Each function-table entry forwards the corresponding `plugin_*` call with the
 same arguments and return value, replacing the instance type with `void *`:
@@ -130,7 +136,8 @@ Audio channels are flattened in JSON bus order, separately for each direction.
 Values use product units. The host supplies valid arguments and serializes DSP
 calls, including incoming messages and transport updates.
 
-`perone_callbacks` forwards `handle`, directory callbacks and `msg_write`.
+`perone_callbacks` forwards `handle`, directory callbacks, `msg_write` and
+`midi_msg_out` where declared by the product.
 The wrapper supplies the source callback's `format` as `"perone"`.
 Transport fields, including `changed` and `valid`, are copied into the source
 transport structure. Messaging is synchronous: `msg_in` delivers host data to the
@@ -148,14 +155,58 @@ Optional function pointers are NULL when the product does not declare the
 corresponding capability: input/output parameters, MIDI input, transport sync,
 UI-to-DSP messaging or custom DSP state (`state.dspCustom`). Callback fields remain
 present in the public types regardless of these capabilities. Parameter function
-stubs are still expected by the source API. UI embedding uses its own optional ABI;
-MIDI output is rejected because the source API has no corresponding callback.
+stubs are still expected by the source API. UI embedding uses its own optional ABI.
+
+MIDI output uses the following host callback, also present in the generated
+`plugin_callbacks` when `PLUGIN_HAS_MIDI_OUTPUT` is defined:
+
+```c
+void midi_msg_out(void *handle, size_t bus, const uint8_t *data, size_t offset);
+```
+
+Declare buses with `"type": "midi"` and `"direction": "input"` or `"output"`
+in `product.buses`. An ordinary MIDI effect may have these two buses, parameters
+and no audio buses, as in [the test product](../../test/perone_midi.json).
+The host must still advance it with `process(instance, NULL, NULL, frames)`;
+zero-channel input/output arrays are NULL. A zero memory requirement needs no
+allocation; pass NULL to `mem_set`. No dummy audio ports are added to the product.
+
+The emission contract is:
+
+* `bus` is the original index in `product.buses`, and must name a MIDI output.
+  It is not the index among output buses. All declared output buses use this one
+  callback, with the host's `handle`.
+* `data` holds a complete MIDI 1.0 short message in three bytes, using the same
+  representation as `midi_msg_in`. Pad unused bytes with zero for one- or two-byte
+  messages. The meaningful length follows the status byte. SysEx and running
+  status are outside this API.
+* Emit synchronously, on the processing thread, only from `plugin_process`.
+  `offset` is a count of sample frames relative to the start of that exact call,
+  in the interval `[0, frames)`. It is neither seconds nor an absolute timestamp.
+  This clock also advances when there are no audio channels. Zero-frame calls
+  emit nothing; an event at `frames` belongs at offset zero of the next call.
+* The bytes are borrowed only for the callback's duration. The host must copy
+  them before returning if it retains them or hands them to another thread.
+  The callback has no return value; the host owns buffer capacity and overflow
+  handling. Avoid blocking, allocation or DSP reentry in a real-time callback.
+* Input MIDI and parameter delivery remain unchanged. `midi_msg_in` has no time
+  argument: deliver an event before processing the range it affects. A plugin
+  that wants to echo it must retain its bytes and emit them during `process`,
+  rather than emit from `midi_msg_in`, `init`, `reset` or a parameter setter.
+  When splitting a larger host block, add the start of the subrange to emitted
+  offsets before appending events to the larger block's output buffer.
+
+`init` rejects a NULL `midi_msg_out` when the product declares MIDI outputs. The
+callback can be NULL for other products. Existing plugin sources need no changes
+unless they emit MIDI; regenerate the API and Perone templates when rebuilding.
+Only Perone currently bridges this new source callback to the host; the other
+target formats do not provide MIDI output and supply a NULL callback.
 
 The UI library exports `perone_ui_get_api(PERONE_UI_ABI_VERSION)`, currently
 UI ABI version 1. Its table forwards `plugin_ui_get_default_size`, `plugin_ui_create`,
 `plugin_ui_free`, `plugin_ui_idle`, `plugin_ui_set_parameter` and `plugin_ui_msg_in`.
-`get_widget` exposes the source UI's `widget` field through the opaque API. DSP ABI
-version 2 is unchanged; loading the DSP does not load the UI or its dependencies.
+`get_widget` exposes the source UI's `widget` field through the opaque API. The UI
+ABI is independent of DSP ABI 3; loading the DSP does not load the UI or its dependencies.
 
 The first native UI backend is X11 on Linux. Pass `PERONE_UI_X11` to `create`,
 with the source API's `has_parent` and `parent` arguments. Unsupported window APIs
@@ -194,8 +245,8 @@ Wasm UIs use `PERONE_UI_WEB` with toolkit-owned parent/widget tokens. The seven
 table entries and seven callback fields keep the layout declared in `perone_ui.h`,
 using wasm32 pointers and function-table indices. The module exports
 `perone_ui_get_api`, memory, the growable table, constructors and allocation
-functions, plus any exports needed by the toolkit adapter. UI ABI version 1 and
-DSP ABI version 2 are unchanged. See [perone-vinci-web](../perone-vinci-web/README.md)
+functions, plus any exports needed by the toolkit adapter. UI ABI version 1 is
+unchanged by DSP ABI 3. See [perone-vinci-web](../perone-vinci-web/README.md)
 for the Vinci build, loading and lifecycle contract.
 
 Web UIs are ordinary ES modules and assets. Declare their bundle-relative entry
@@ -233,7 +284,13 @@ sh test/run_perone.sh
 Generated projects and bundles stay in `out/perone/c` and `out/perone/cxx`;
 the host executable is `out/perone/test`. The five values passed to the host
 are the input parameter defaults from `test/product.json`, in their original
-order.
+order. The same script also builds `test/plugin_midi.h` as C and C++ into
+`out/perone/midi/c` and `out/perone/midi/cxx`. Native `test/perone_midi.c` and
+`test/perone_midi_wasm.js` verify MIDI-only processing, parameters, note/CC/program
+and realtime messages, first/last-frame offsets, block boundaries, zero-frame
+calls, reset and copied data. The Wasm tests also check memory growth and offset
+rebasing when the browser adapter splits a process call into 128-frame chunks.
+The original audio tests check ABI 2 compatibility with four-field callbacks.
 
 For native UI integration tests, install the X11/XCB development libraries and
 provide a Vinci checkout and an X11 display (a virtual display is also suitable):
@@ -250,5 +307,38 @@ For browser tests, provide Playwright and its Chromium browser, then run
 `node test/perone_web.js` after `test/run_perone.sh`. `PERONE_PLAYWRIGHT` can point
 to an existing Playwright package and `PERONE_CHROMIUM` to an existing Chromium
 executable. These tests cover generic/custom UIs, parameters, messages and cleanup.
+They also run the MIDI-only C/C++ bundles in an AudioWorklet, checking output
+bytes, offsets and AudioContext frame timestamps.
 The separate `test/run_perone_ui_web.sh` and `test/perone_ui_web.js` build and test
 the original Vinci UI in Wasm, including its real canvas pixels and DSP connection.
+
+## Updating triccheballacche
+
+The host already has MIDI output buffers; the Perone adapter must connect them:
+
+1. Copy this version of `perone.h` into the host. In `host/perone.c`, negotiate
+   ABI 3 first, falling back to ABI 2 only without MIDI outputs. Remove the
+   unconditional `config->midi_output` rejection from `perone_open`.
+2. In the bundle metadata reader (`lib/perone.janet`), accept one MIDI input and
+   one output, preserve their original bus indices, publish `:midi-output-bus`,
+   and allow zero audio outputs when MIDI output exists. The existing host stores
+   `PluginConfig.midi_output` as the output bus index plus one.
+3. Supply a five-field `perone_callbacks`, with an emission callback that checks
+   `bus + 1 == dsp->config.midi_output` and appends through the existing
+   `dsp_midi_output(dsp, offset, data, midi_size(data[0]))`. Check the offset before
+   narrowing it to the host's uint32 frame index. `dsp_midi_output` copies the
+   meaningful bytes into the existing `MidiBuffer`; propagate invalid messages,
+   offsets or buffer overflow through its existing failure mechanism. If the
+   adapter later splits a process call, add its subrange base to `offset`.
+4. Keep calling `process` with NULL audio arrays for MIDI-only plugins, and
+   handle `mem_req() == 0` without treating `malloc(0)` as an error.
+5. In `web/perone.js`, negotiate 3 then 2, allocate five callback words (20 bytes),
+   and install a typed Wasm callback with four i32 arguments and no result.
+   Copy data out of the plugin's current memory buffer during the callback.
+   Extend `web/dsp.c` to pass the output bus and expose these events through
+   `midi_output_dsp`, which currently returns NULL, using the existing common
+   MIDI buffers. Keep this path in the audio processor for frame-accurate chaining;
+   page-thread notifications are asynchronous.
+6. Use the new C/C++ MIDI test bundles to test note-on/off timing and parameters
+   without audio, and retain an ABI 2 audio bundle in the host's compatibility
+   checks. UI ABI 1 and the 16-entry DSP table do not change.

@@ -21,6 +21,12 @@
 #ifndef PLUGIN_API_H
 #define PLUGIN_API_H
 
+{{?it.product.buses?.some(x => x.type == "midi" && x.direction == "output")}}
+#include <stddef.h>
+#include <stdint.h>
+#define PLUGIN_HAS_MIDI_OUTPUT 1
+{{?}}
+
 typedef struct {
 	void *		handle;
 	const char *	format;
@@ -29,6 +35,17 @@ typedef struct {
 {{?(it.product.messaging && it.product.messaging.dspToUiSize)}}
 	void (*msg_write)(void *handle, size_t size, const void *data);
 {{?}}
+#ifdef PLUGIN_HAS_MIDI_OUTPUT
+	/* MIDI 1.0 short message: three bytes, unused bytes zero-padded; no SysEx
+	 * or running status. bus is the original product.buses index.
+	 * Call only during plugin_process, with offset < n_samples, measured in
+	 * sample frames from the start of that invocation (also without audio).
+	 * Data is borrowed until this callback returns; the host copies it if needed.
+	 * A zero-frame process call emits nothing. Hosts without MIDI output may
+	 * supply NULL; the plugin must check before calling it.
+	 */
+	void (*midi_msg_out)(void *handle, size_t bus, const uint8_t *data, size_t offset);
+#endif
 #ifdef PLUGIN_CALLBACKS_EXTRA
 	PLUGIN_CALLBACKS_EXTRA
 #endif

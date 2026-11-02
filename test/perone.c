@@ -55,9 +55,21 @@ int main(int argc, char **argv) {
 	assert(library);
 	const perone_api *(*get)(uint32_t) = dlsym(library, "perone_get_api"); assert(get);
 	const perone_api *a = get(PERONE_ABI_VERSION);
+	if (!a) a = get(2); /* Hosts can keep loading existing audio binaries. */
+	assert(get(2) == a && !get(1) && !get(4));
 	assert(a && a->set_transport && a->msg_in && a->state_save && a->state_load);
+	/* An ABI 2 host supplies only the original four callback fields. */
+	struct {
+		void *handle;
+		const char *(*get_bindir)(void *);
+		const char *(*get_datadir)(void *);
+		void (*msg_write)(void *, size_t, const void *);
+	} legacy = {NULL, NULL, NULL, NULL};
+	void *old = a->alloc(); assert(old);
+	assert(!get(2)->init(old, (const perone_callbacks *)&legacy));
+	a->fini(old); a->free(old);
 	host h = {0}; h.api = a; h.instance = a->alloc(); assert(h.instance);
-	perone_callbacks cbs = {&h, NULL, NULL, message};
+	perone_callbacks cbs = {&h, NULL, NULL, message, NULL};
 	assert(!a->init(h.instance, &cbs));
 	for (size_t i = 0; i < 5; ++i) a->set_parameter(h.instance, i, strtof(argv[i + 2], NULL));
 	configure(&h, 48000);

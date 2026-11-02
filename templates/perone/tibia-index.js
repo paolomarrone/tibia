@@ -1,7 +1,5 @@
 // Tibia Perone target. GPL-3.0-or-later.
 module.exports = function (data, api, outputCommon, outputData) {
-	if (outputData && data.product.buses.some(b => b.type == "midi" && b.direction == "output"))
-		throw new Error("perone: the source API has no MIDI output callback");
 	api.copyFile("perone.h", "src/perone.h");
 	api.copyFile("src/perone.c", "src/perone.c");
 	api.copyFile("perone_ui.h", "src/perone_ui.h");

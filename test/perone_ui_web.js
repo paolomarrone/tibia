@@ -73,7 +73,8 @@ async function main() {
 			await page.mouse.down();
 			await page.mouse.move(rect.x + 480, rect.y + 65);
 			await page.mouse.up();
-			await page.waitForFunction(() => Math.abs(host.node.values[0] - 10) < .01 && host.node.values[5] > .29 && pixel("second", 450, 65)[0] == 103);
+			// Vinci consumes mouse events during idle; releasing the pointer only queues the end.
+			await page.waitForFunction(() => host.gestures.length == 2 && Math.abs(host.node.values[0] - 10) < .01 && host.node.values[5] > .29 && pixel("second", 450, 65)[0] == 103);
 			assert.deepEqual(await page.evaluate(() => host.gestures), ["begin", "end"]);
 			await canvas.click({ position: { x: 300, y: 438 } });
 			await page.waitForFunction(() => host.node.values[4] == 1 && host.node.values[5] < .11);

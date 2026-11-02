@@ -81,7 +81,30 @@ plus `midi_msg_in(bus, bytes)` and `set_transport(transport)`. Transport object 
 match `perone_transport`, including `changed`/`valid` bit masks and the `bar` BigInt.
 The node emits `parameter` events with `{ index, value }`, `gesture` events with
 `{ phase: "begin" | "end", index, value }`, `message` events with `{ data }`, and
-`error` events with an Error as their `detail`.
+`error` events with an Error as their `detail`. MIDI output emits `midi` events
+with `{ bus, data, offset, frame }`: `bus` is the original JSON output bus index,
+`data` is an owned three-byte `Uint8Array` (unused bytes zero-padded), `offset` is
+relative to the current render quantum, and `frame` is its absolute frame position
+in the AudioContext clock (`currentFrame + offset`, or `frame / context.sampleRate`
+in seconds). Data is copied during the Wasm callback, so it may be retained.
+
+MIDI-only bundles need no audio ports in their JSON. Connect the node's silent
+output to keep its AudioWorklet running, then send MIDI through `midi_msg_in` and
+listen for `midi` events. Parameter controls work as for an audio plugin:
+
+```js
+node.addEventListener("midi", ({ detail: { bus, data, offset, frame } }) => {
+    // Copy/consume the MIDI short message in the embedding host.
+});
+node.midi_msg_in(0, [0x90, 60, 100]);
+```
+
+The Wasm adapter requests DSP ABI 3, falling back to ABI 2 for older bundles
+without MIDI output. Its native emission callback uses offsets relative to each
+`process` call; the adapter adds the chunk base if it divides a larger call.
+Delivery to the page through the port is asynchronous: timestamps describe when
+the DSP emitted an event, and do not provide sample-accurate routing on the page.
+MIDI device access and scheduling belong to the embedding host.
 
 Parameter changes are sent through the AudioWorklet port; this host does not
 implement sample-accurate AudioParam automation or a state-save UI. Those can be

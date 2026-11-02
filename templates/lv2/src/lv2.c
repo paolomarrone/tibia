@@ -311,6 +311,9 @@ static LV2_Handle instantiate(const struct LV2_Descriptor * descriptor, double s
 	// make C++ compilers happy
 	const char * missing;
 	plugin_callbacks cbs;
+#ifdef PLUGIN_HAS_MIDI_OUTPUT
+	cbs.midi_msg_out = NULL; /* MIDI output is currently bridged by Perone only. */
+#endif
 	size_t req;
 
 	plugin_instance *instance = (plugin_instance *)malloc(sizeof(plugin_instance));

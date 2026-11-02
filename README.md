@@ -13,6 +13,8 @@ Right now Tibia contains templates to generate:
 * WebAudio modules, using WebAssembly
 * Daisy Seed firmware
 * command line applications, with .wav I/O and MIDI file format 0 input
+* [Perone bundles](templates/perone/README.md), with native and standalone Wasm
+  DSPs, optional UIs and MIDI input/output, including effects without audio ports
 
 At the moment this software should be considered unstable and undocumented. We currently have no plans to make this tool actually something to be relied upon, but this might change in the future.
 

@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
 	host h = {0}; h.dsp = get_dsp(PERONE_ABI_VERSION); h.api = get_ui(PERONE_UI_ABI_VERSION);
 	assert(h.dsp && h.api);
 	h.instance = h.dsp->alloc(); assert(h.instance);
-	perone_callbacks dsp_cbs = {&h, directory, directory, to_ui};
+	perone_callbacks dsp_cbs = {&h, directory, directory, to_ui, NULL};
 	assert(!h.dsp->init(h.instance, &dsp_cbs));
 	h.dsp->set_sample_rate(h.instance, 48000);
 	void *mem = malloc(h.dsp->mem_req(h.instance)); assert(mem);

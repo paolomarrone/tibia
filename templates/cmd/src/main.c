@@ -331,6 +331,9 @@ int main(int argc, char * argv[]) {
 	// make C++ compilers happy
 	size_t req;
 	plugin_callbacks cbs;
+#ifdef PLUGIN_HAS_MIDI_OUTPUT
+	cbs.midi_msg_out = NULL; /* MIDI output is currently bridged by Perone only. */
+#endif
 
 	int exit_code = EXIT_FAILURE;
 
